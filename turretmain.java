@@ -10,10 +10,10 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.Range;
 
 @TeleOp(name = "turret")
-public class turretmain extends OpMode {
-    double Kp = 0.015;
+public class turretMain extends OpMode {
+    double Kp = 0.025;
     double Ki = 0.005;
-    double Kd = 22.0;
+    double Kd = 24.0;
     //tuned with maxPower = 0.4;
 
     double integralSum = 0;
@@ -25,6 +25,9 @@ public class turretmain extends OpMode {
 
     double maxPower = 0.4;
     double deadZone = 0.5;
+
+    double lastTx = 0;
+    boolean hadTarget = false;
 
     @Override
     public void init() {
@@ -48,36 +51,44 @@ public class turretmain extends OpMode {
     public void loop() {
         LLResult result = limelight.getLatestResult();
 
-        if (result == null || !result.isValid()) {
+        double dt = timer.seconds();
+        timer.reset();
+        if (dt <= 0) dt = 0.001;
+
+        double error;
+
+        if (result != null && result.isValid()) {
+            error = result.getTx() + 0.5;
+            lastTx = error;
+            hadTarget = true;
+        } else {
+            if (hadTarget) {
+                error = lastTx;
+            } else {
+                error = 5.0; // positive = rotate right, negative = left
+            }
+            integralSum = 0;
+        }
+        if (Math.abs(error) < deadZone) {
             turretMotor.setPower(0);
             integralSum = 0;
-            lastError = 0;
-            timer.reset();
-            telemetry.addLine("no tag detected");
+            lastError = error;
+            telemetry.addLine("locked");
             return;
-        } else {
-            double dt = timer.seconds();
-            timer.reset();
-
-            if (dt <= 0) dt = 0.001;
-
-            double error = result.getTx();
-            if (Math.abs(error) < deadZone) {
-                turretMotor.setPower(0);
-                integralSum = 0;
-            } else {
-                integralSum += error * dt;
-                integralSum = Range.clip(integralSum, -10, 10);
-
-                double derivative = (error - lastError) / dt;
-                lastError = error;
-
-                double output = (Kp * error) + (Ki * integralSum) + (Kd * derivative);
-
-                output = Range.clip(output, -maxPower, maxPower);
-                turretMotor.setPower(output);
-            }
         }
-    }
+        integralSum += error * dt;
+        integralSum = Range.clip(integralSum, -10, 10);
 
+        double derivative = (error - lastError) / dt;
+        lastError = error;
+
+        double output = (Kp * error) + (Ki * integralSum) + (Kd * derivative);
+
+        output = Range.clip(output, -maxPower, maxPower);
+        turretMotor.setPower(output);
+
+        telemetry.addData("error(tx)", error);
+        telemetry.addData("output", output);
+        telemetry.addData("hasTarget", result != null && result.isValid());
     }
+}
